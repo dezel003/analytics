@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>devonte.design · analytics</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --line: #232a31;
+    --fg: #e7edf3; --muted: #8a97a6; --accent: #6ea8fe;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+           padding: 18px 22px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  select, input { background: var(--panel); color: var(--fg);
+                  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  main { padding: 22px; display: grid; gap: 16px;
+         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); margin: 0 0 12px; }
+  .kpis { display: flex; gap: 28px; }
+  .kpi .n { font-size: 30px; font-weight: 700; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  td:last-child { text-align: right; color: var(--accent); font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: 0; }
+  .bar { position: relative; }
+  .bar span { position: absolute; left: 0; top: 0; bottom: 0;
+              background: rgba(110,168,254,.14); border-radius: 4px; z-index: 0; }
+  .bar b, .bar em { position: relative; z-index: 1; font-weight: 400; font-style: normal; }
+  .full { grid-column: 1 / -1; }
+  .muted { color: var(--muted); }
+  svg { width: 100%; height: 120px; display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>devonte.design · analytics</h1>
+  <select id="range">
+    <option value="1">Last 24h</option>
+    <option value="7" selected>Last 7 days</option>
+    <option value="30">Last 30 days</option>
+    <option value="90">Last 90 days</option>
+  </select>
+  <span id="status" class="muted"></span>
+</header>
+<main id="app"></main>
+
+<script>
+function qs(name) { return new URLSearchParams(location.search).get(name); }
+function fmtDur(ms) {
+  if (!ms) return '0s';
+  var s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  var m = Math.floor(s / 60); s = s % 60;
+  return m + 'm ' + s + 's';
+}
+function rows(items, label, value, max) {
+  if (!items.length) return '<tr><td class="muted">No data</td><td></td></tr>';
+  max = max || Math.max.apply(null, items.map(value)) || 1;
+  return items.map(function (it) {
+    var v = value(it), pct = Math.round((v / max) * 100);
+    return '<tr><td class="bar"><span style="width:' + pct + '%"></span><b>' +
+           label(it) + '</b></td><td>' + (it._fmt ? it._fmt(it) : v) + '</td></tr>';
+  }).join('');
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) {
+  return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+
+function sparkline(daily) {
+  if (!daily.length) return '';
+  var w = 600, h = 120, max = Math.max.apply(null, daily.map(function (d) { return d.visitors; })) || 1;
+  var step = daily.length > 1 ? w / (daily.length - 1) : 0;
+  var pts = daily.map(function (d, i) {
+    return (i * step).toFixed(1) + ',' + (h - (d.visitors / max) * (h - 10) - 5).toFixed(1);
+  });
+  return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
+    '<polyline fill="none" stroke="#6ea8fe" stroke-width="2" points="' + pts.join(' ') + '"/>' +
+    '</svg>';
+}
+
+async function load() {
+  var key = qs('key');
+  var days = document.getElementById('range').value;
+  var status = document.getElementById('status');
+  status.textContent = 'Loading…';
+  if (!key) { status.textContent = 'Add ?key=YOUR_PASSWORD to the URL.'; return; }
+
+  var res = await fetch('/api/stats?key=' + encodeURIComponent(key) + '&days=' + days);
+  if (!res.ok) { status.textContent = res.status === 401 ? 'Wrong password.' : 'Error ' + res.status; return; }
+  var d = await res.json();
+  status.textContent = '';
+
+  var app = document.getElementById('app');
+  app.innerHTML =
+    card('Overview', '<div class="kpis">' +
+        kpi(d.totals.visitors, 'Visitors') +
+        kpi(d.totals.pageviews, 'Pageviews') +
+        kpi(fmtDur(d.avg_session_ms), 'Avg session') + '</div>', 'full') +
+
+    card('Visitors over time', sparkline(d.daily), 'full') +
+
+    card('Top pages', '<table>' + rows(d.top_pages, function (p) { return esc(p.path); },
+        function (p) { return p.views; }) + '</table>') +
+
+    card('Top pages · avg time', '<table>' + d.top_pages.map(function (p) {
+        return '<tr><td>' + esc(p.path) + '</td><td>' + fmtDur(p.avg_ms) + '</td></tr>';
+      }).join('') + '</table>') +
+
+    card('Locations', '<table>' + d.geo.map(function (g) {
+        return '<tr><td>' + esc(g.country) + (g.city && g.city !== '?' ? ' · ' + esc(g.city) : '') +
+               '</td><td>' + g.visitors + '</td></tr>';
+      }).join('') + '</table>') +
+
+    card('Referrers', '<table>' + rows(d.referrers, function (r) { return esc(r.referrer); },
+        function (r) { return r.visitors; }) + '</table>') +
+
+    card('Devices', '<table>' + rows(d.devices, function (x) { return esc(x.k); },
+        function (x) { return x.v; }) + '</table>') +
+
+    card('Browsers', '<table>' + rows(d.browsers, function (x) { return esc(x.k); },
+        function (x) { return x.v; }) + '</table>') +
+
+    card('Operating systems', '<table>' + rows(d.os, function (x) { return esc(x.k); },
+        function (x) { return x.v; }) + '</table>');
+}
+
+function card(title, body, cls) {
+  return '<section class="card ' + (cls || '') + '"><h2>' + title + '</h2>' + body + '</section>';
+}
+function kpi(n, l) { return '<div class="kpi"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>'; }
+
+document.getElementById('range').addEventListener('change', load);
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "devonte-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "description": "First-party, cookieless analytics for devonte.design",
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
+}
