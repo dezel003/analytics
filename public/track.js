@@ -3,7 +3,24 @@
   'use strict';
   if (navigator.doNotTrack === '1') return; // respect DNT
 
-  var ENDPOINT = '/api/collect';
+  // Derive the collector origin from this script's own <src> so the same
+  // snippet works cross-origin (e.g. loaded on devonte.design, posting to the
+  // analytics deployment). Falls back to same-origin if it can't be resolved.
+  var ORIGIN = (function () {
+    try {
+      var s = document.currentScript || (function () {
+        var all = document.getElementsByTagName('script');
+        for (var i = all.length - 1; i >= 0; i--) {
+          if (all[i].src && all[i].src.indexOf('track.js') !== -1) return all[i];
+        }
+        return null;
+      })();
+      if (s && s.src) return new URL(s.src).origin;
+    } catch (e) {}
+    return location.origin;
+  })();
+
+  var ENDPOINT = ORIGIN + '/api/collect';
   var HEARTBEAT_MS = 15000;
 
   var loadedAt = Date.now();
